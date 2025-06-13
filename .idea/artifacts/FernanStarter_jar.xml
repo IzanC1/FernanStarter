@@ -1,0 +1,11 @@
+<component name="ArtifactManager">
+  <artifact type="jar" build-on-make="true" name="FernanStarter:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/FernanStarter_jar</output-path>
+    <root id="archive" name="FernanStarter.jar">
+      <element id="module-output" name="FernanStarter" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/mysql-connector-j-9.3.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/javax.mail-1.6.1.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/activation-1.1.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>
