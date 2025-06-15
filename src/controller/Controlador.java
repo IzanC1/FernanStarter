@@ -4,6 +4,7 @@ import model.*;
 import model.enums.CategoriaProyecto;
 import model.enums.TipoUsuario;
 import model.gestion.*;
+import model.interfaces.Bloqueable;
 import utilidades.*;
 import view.Vista;
 import java.time.LocalDate;
@@ -38,15 +39,28 @@ public class Controlador {
         String nombre = vista.solicitarCadena("Usuario: ");
         String contrasena = vista.solicitarCadena("Contraseña: ");
         Usuario usuario = GestionUsuario.buscarPorNombre(nombre);
-        if (usuario == null) { vista.mostrarMensaje("Usuario o contraseña incorrectos."); return; }
-        if (usuario.isBloqueado()) { vista.mostrarMensaje("Este usuario está bloqueado."); return; }
+
+        if (usuario == null) {
+            vista.mostrarMensaje("Usuario o contraseña incorrectos.");
+            return;
+        }
+
+        // Comprobar si es bloqueable y si está bloqueado
+        if (usuario instanceof Bloqueable && ((Bloqueable) usuario).isBloqueado()) {
+            vista.mostrarMensaje("Este usuario está bloqueado.");
+            return;
+        }
 
         if (usuario.getContrasena().equals(contrasena)) {
             String token = funcionesCorreos.enviarCodigoDobleFactor(usuario.getNombre(), usuario.getCorreo());
             String tokenIngresado = vista.solicitarCadena("Introduce el código de verificación: ");
+
             if (funcionesCorreos.verificarCodigoDobleFactor(usuario.getNombre(), tokenIngresado)) {
                 this.usuarioLogueado = usuario;
-                usuario.setIntentos(3);
+                // Resetea intentos al loguear con éxito, solo para los que tienen intentos
+                if (usuario instanceof Gestor) ((Gestor) usuario).setIntentos(3);
+                if (usuario instanceof Inversor) ((Inversor) usuario).setIntentos(3);
+
                 vista.mostrarMensaje("¡Login exitoso! Bienvenido, " + usuario.getNombre());
                 switch (usuario.getTipo()) {
                     case ADMIN: panelAdmin(); break;
@@ -57,12 +71,27 @@ public class Controlador {
                 vista.mostrarMensaje("Código incorrecto. El inicio de sesión ha fallado.");
             }
         } else {
-            usuario.decrementarIntentos();
-            if (usuario.getIntentos() <= 0) {
-                usuario.setBloqueado(true);
-                vista.mostrarMensaje("Demasiados intentos fallidos. Usuario bloqueado.");
+            // Lógica de intentos fallidos para usuarios bloqueables
+            if (usuario instanceof Gestor) {
+                Gestor g = (Gestor) usuario;
+                g.decrementarIntentos();
+                if (g.getIntentos() <= 0) {
+                    g.bloquear();
+                    vista.mostrarMensaje("Demasiados intentos fallidos. Usuario bloqueado.");
+                } else {
+                    vista.mostrarMensaje("Contraseña incorrecta. Intentos restantes: " + g.getIntentos());
+                }
+            } else if (usuario instanceof Inversor) {
+                Inversor i = (Inversor) usuario;
+                i.decrementarIntentos();
+                if (i.getIntentos() <= 0) {
+                    i.bloquear();
+                    vista.mostrarMensaje("Demasiados intentos fallidos. Usuario bloqueado.");
+                } else {
+                    vista.mostrarMensaje("Contraseña incorrecta. Intentos restantes: " + i.getIntentos());
+                }
             } else {
-                vista.mostrarMensaje("Usuario o contraseña incorrectos. Intentos restantes: " + usuario.getIntentos());
+                vista.mostrarMensaje("Contraseña incorrecta.");
             }
         }
     }
@@ -145,11 +174,18 @@ public class Controlador {
         int idUsuario = vista.solicitarEntero("ID del usuario a gestionar (-1 para cancelar): ");
         if (idUsuario == -1) return;
         Usuario u = GestionUsuario.buscarPorId(idUsuario);
-        if (u != null && u.getTipo() != TipoUsuario.ADMIN) {
+
+        if (u instanceof Bloqueable) {
+            Bloqueable usuarioBloqueable = (Bloqueable) u;
             int accion = vista.solicitarEntero("1. Bloquear\n2. Desbloquear\nOpción: ");
-            u.setBloqueado(accion == 1);
-            if(accion == 2) u.setIntentos(3);
+            if (accion == 1) {
+                usuarioBloqueable.bloquear();
+            } else if (accion == 2) {
+                usuarioBloqueable.desbloquear();
+            }
             vista.mostrarMensaje("Estado del usuario actualizado.");
+        } else if (u != null) {
+            vista.mostrarMensaje("El administrador no puede ser bloqueado.");
         } else {
             vista.mostrarMensaje("ID no válido.");
         }
@@ -251,7 +287,13 @@ public class Controlador {
     }
 
     private void procesarInversion(Proyecto p) {
-        if (usuarioLogueado.getSaldo() <= 0) { vista.mostrarMensaje("No tienes saldo suficiente."); return; }
+        if (!(usuarioLogueado instanceof Inversor)) {
+            vista.mostrarMensaje("Solo los inversores pueden realizar esta acción.");
+            return;
+        }
+        Inversor inversor = (Inversor) usuarioLogueado;
+
+        if (inversor.getSaldo() <= 0) { vista.mostrarMensaje("No tienes saldo suficiente."); return; }
         double cantidadInvertir = 0;
         int tipoInv = vista.solicitarEntero("1. Inversión libre\n2. Por recompensa\nOpción: ");
         if (tipoInv == 1) {
@@ -263,10 +305,10 @@ public class Controlador {
             } else { vista.mostrarMensaje("Recompensa no válida."); return; }
         } else { vista.mostrarMensaje("Opción no válida."); return; }
 
-        if (cantidadInvertir > 0 && cantidadInvertir <= usuarioLogueado.getSaldo() && (p.getCantidadFinanciada() + cantidadInvertir <= p.getCantidadNecesaria())) {
-            usuarioLogueado.setSaldo(usuarioLogueado.getSaldo() - cantidadInvertir);
+        if (cantidadInvertir > 0 && cantidadInvertir <= inversor.getSaldo() && (p.getCantidadFinanciada() + cantidadInvertir <= p.getCantidadNecesaria())) {
+            inversor.setSaldo(inversor.getSaldo() - cantidadInvertir);
             p.anadirFinanciacion(cantidadInvertir);
-            GestionInversion.registrarInversion(usuarioLogueado.getId(), p.getId(), cantidadInvertir);
+            GestionInversion.registrarInversion(inversor, p, cantidadInvertir);
             vista.mostrarMensaje("¡Inversión realizada con éxito!");
         } else {
             vista.mostrarMensaje("No se pudo realizar la inversión (saldo insuficiente o excede lo necesario).");
@@ -274,23 +316,29 @@ public class Controlador {
     }
 
     private void gestionarCartera() {
-        vista.mostrarMensaje(String.format("Tu saldo actual es: %.2f€", usuarioLogueado.getSaldo()));
-        if (vista.solicitarCadena("¿Deseas recargar saldo? (s/n): ").equalsIgnoreCase("s")) {
-            double recarga = vista.solicitarDouble("Cantidad a recargar: ");
-            if (recarga > 0) {
-                usuarioLogueado.setSaldo(usuarioLogueado.getSaldo() + recarga);
-                vista.mostrarMensaje("Saldo actualizado.");
-            } else {
-                vista.mostrarMensaje("La cantidad debe ser positiva.");
+        if(usuarioLogueado instanceof Inversor) {
+            Inversor inversor = (Inversor) usuarioLogueado;
+            vista.mostrarMensaje(String.format("Tu saldo actual es: %.2f€", inversor.getSaldo()));
+            if (vista.solicitarCadena("¿Deseas recargar saldo? (s/n): ").equalsIgnoreCase("s")) {
+                double recarga = vista.solicitarDouble("Cantidad a recargar: ");
+                if (recarga > 0) {
+                    inversor.setSaldo(inversor.getSaldo() + recarga);
+                    vista.mostrarMensaje("Saldo actualizado.");
+                } else {
+                    vista.mostrarMensaje("La cantidad debe ser positiva.");
+                }
             }
         }
     }
 
     private void procesarInvitarAmigo() {
-        vista.mostrarMensaje("Amigos invitados: " + usuarioLogueado.getAmigos());
-        String correoAmigo = vista.solicitarCadena("Correo del amigo a invitar: ");
-        usuarioLogueado.anadirAmigo(correoAmigo);
-        vista.mostrarMensaje("Invitación registrada para " + correoAmigo);
+        if (usuarioLogueado instanceof Inversor) {
+            Inversor inversor = (Inversor) usuarioLogueado;
+            vista.mostrarMensaje("Amigos invitados: " + inversor.getAmigos());
+            String correoAmigo = vista.solicitarCadena("Correo del amigo a invitar: ");
+            inversor.anadirAmigo(correoAmigo);
+            vista.mostrarMensaje("Invitación registrada para " + correoAmigo);
+        }
     }
 
     private void abrirMenuConfiguracion() {

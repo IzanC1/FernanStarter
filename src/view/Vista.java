@@ -5,6 +5,7 @@ import model.Proyecto;
 import model.Recompensa;
 import model.Usuario;
 import model.enums.CategoriaProyecto;
+import model.interfaces.Bloqueable;
 import utilidades.funcionesFechas;
 import java.util.ArrayList;
 import java.util.Scanner;
@@ -18,7 +19,7 @@ public class Vista {
     public int solicitarEntero(String mensaje) { while (true) { try { return Integer.parseInt(solicitarCadena(mensaje)); } catch (NumberFormatException e) { mostrarMensaje("Error: Ingresa un número entero."); } } }
     public double solicitarDouble(String mensaje) { while (true) { try { return Double.parseDouble(solicitarCadena(mensaje)); } catch (NumberFormatException e) { mostrarMensaje("Error: Ingresa un número decimal."); } } }
 
-    // --- Menús (CORREGIDOS Y REFINADOS) ---
+    // --- Menús ---
     public void mostrarMenuPrincipal() { mostrarMensaje("\n--- MENÚ PRINCIPAL ---\n1. Iniciar Sesión\n2. Registrarse\n3. Salir"); }
     public void mostrarMenuAdmin() { mostrarMensaje("\n--- MENÚ ADMIN ---\n1. Gestión de Usuarios\n2. Gestión de Proyectos\n3. Configuración\n4. Cerrar Sesión"); }
     public void mostrarMenuGestor() { mostrarMensaje("\n--- MENÚ GESTOR ---\n1. Gestionar mis Proyectos\n2. Crear Nuevo Proyecto\n3. Configuración\n4. Cerrar Sesión"); }
@@ -29,7 +30,21 @@ public class Vista {
     // --- Vistas de Listados ---
     public void listarUsuarios(ArrayList<Usuario> usuarios) {
         mostrarMensaje("\n--- LISTA DE USUARIOS ---");
-        for(Usuario u : usuarios) { System.out.printf("ID: %d | Nombre: %s (%s) - Bloqueado: %s\n", u.getId(), u.getNombre(), u.getTipo(), u.isBloqueado() ? "Sí" : "No"); }
+        for (Usuario u : usuarios) {
+            String estadoBloqueo = "N/A"; // Valor por defecto para los no bloqueables (Admin)
+
+            // Comprobamos si el usuario implementa la interfaz Bloqueable
+            if (u instanceof Bloqueable) {
+                // Si la implementa, hacemos un casting para poder llamar a isBloqueado()
+                estadoBloqueo = ((Bloqueable) u).isBloqueado() ? "Sí" : "No";
+            }
+
+            System.out.printf("ID: %d | Nombre: %s (%s) - Bloqueado: %s\n",
+                    u.getId(),
+                    u.getNombre(),
+                    u.getTipo(),
+                    estadoBloqueo);
+        }
     }
 
     public void listarProyectos(ArrayList<Proyecto> proyectos) {
@@ -42,8 +57,14 @@ public class Vista {
         mostrarMensaje("\n--- MIS INVERSIONES ---");
         if (inversiones.isEmpty()) { mostrarMensaje("No has realizado ninguna inversión."); return; }
         for (Inversion inv : inversiones) {
-            Proyecto p = todosProyectos.stream().filter(pr -> pr.getId() == inv.getIdProyecto()).findFirst().orElse(null);
-            if (p != null) { System.out.printf("- En '%s': %.2f€\n", p.getNombre(), inv.getCantidad()); }
+            // Buscamos el proyecto correspondiente a la inversión para mostrar su nombre
+            Proyecto p = todosProyectos.stream()
+                    .filter(pr -> pr.getId() == inv.getProyecto().getId())
+                    .findFirst()
+                    .orElse(null);
+            if (p != null) {
+                System.out.printf("- En '%s': %.2f€\n", p.getNombre(), inv.getCantidad());
+            }
         }
     }
 

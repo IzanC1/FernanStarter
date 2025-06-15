@@ -1,6 +1,6 @@
 package model.gestion;
 
-import model.Usuario;
+import model.*;
 import model.enums.TipoUsuario;
 import java.util.ArrayList;
 
@@ -12,7 +12,10 @@ public class GestionUsuario {
         if (usuarios.isEmpty()) {
             registrarUsuario("admin", "admin", "izan.cano.0805@fernando3martos.com", TipoUsuario.ADMIN);
             registrarUsuario("gestor", "gestor", "izan.cano.0805@fernando3martos.com", TipoUsuario.GESTOR);
-            registrarUsuario("inversor", "inversor", "izan.cano.0805@fernando3martos.com", TipoUsuario.INVERSOR).setSaldo(1000.0);
+            Usuario inversor = registrarUsuario("inversor", "inversor", "izan.cano.0805@fernando3martos.com", TipoUsuario.INVERSOR);
+            if (inversor instanceof Inversor) {
+                ((Inversor) inversor).setSaldo(1000.0);
+            }
         }
     }
 
@@ -20,9 +23,24 @@ public class GestionUsuario {
         if (buscarPorNombre(nombre) != null) {
             return null;
         }
-        Usuario nuevoUsuario = new Usuario(proximoId, nombre, contrasena, correo, tipo);
-        usuarios.add(nuevoUsuario);
-        proximoId++;
+
+        Usuario nuevoUsuario = null;
+        switch(tipo) {
+            case ADMIN:
+                nuevoUsuario = new Administrador(proximoId, nombre, contrasena, correo);
+                break;
+            case GESTOR:
+                nuevoUsuario = new Gestor(proximoId, nombre, contrasena, correo);
+                break;
+            case INVERSOR:
+                nuevoUsuario = new Inversor(proximoId, nombre, contrasena, correo);
+                break;
+        }
+
+        if (nuevoUsuario != null) {
+            usuarios.add(nuevoUsuario);
+            proximoId++;
+        }
         return nuevoUsuario;
     }
 
@@ -52,15 +70,5 @@ public class GestionUsuario {
             }
         }
         return listaFiltrada;
-    }
-
-    public static boolean eliminarUsuario(int id) {
-        Usuario u = buscarPorId(id);
-        if (u != null && u.getTipo() != TipoUsuario.ADMIN) {
-            usuarios.remove(u);
-            // Aquí también se debería eliminar las inversiones y proyectos asociados a este usuario.
-            return true;
-        }
-        return false;
     }
 }
