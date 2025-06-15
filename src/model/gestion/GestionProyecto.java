@@ -6,6 +6,7 @@ import model.enums.CategoriaProyecto;
 import utilidades.funcionesFechas;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 
 public class GestionProyecto {
     private static ArrayList<Proyecto> proyectos = new ArrayList<>();
@@ -13,11 +14,15 @@ public class GestionProyecto {
 
     public static void inicializar() {
         if (proyectos.isEmpty()) {
-            Proyecto p = crearProyecto("Dron de Riego Inteligente", "Dron autónomo con IA para optimizar riego.", CategoriaProyecto.TECNOLOGIA, 5000, funcionesFechas.parsearFecha("01/01/2024"), funcionesFechas.parsearFecha("31/12/2024"), 1); // Gestor con ID 1
-            if (p != null) {
-                p.anadirRecompensa(new Recompensa("Agradecimiento", "Correo de agradecimiento", 20));
-                p.anadirRecompensa(new Recompensa("Kit Pegatinas", "Un kit de pegatinas", 50));
-                p.anadirRecompensa(new Recompensa("Acceso Beta", "Prueba la tecnología", 250));
+            Proyecto p1 = crearProyecto("Dron de Riego Inteligente", "Dron autónomo con IA para optimizar riego.", CategoriaProyecto.TECNOLOGIA, 5000, funcionesFechas.parsearFecha("01/01/2024"), funcionesFechas.parsearFecha("31/12/2024"), 1);
+            if (p1 != null) {
+                p1.anadirRecompensa(new Recompensa("Agradecimiento", "Correo de agradecimiento", 20));
+                p1.anadirFinanciacion(1500);
+            }
+            Proyecto p2 = crearProyecto("Película de Ciencia Ficción", "Cortometraje independiente.", CategoriaProyecto.CINE, 2500, funcionesFechas.parsearFecha("15/03/2024"), funcionesFechas.parsearFecha("15/09/2024"), 1);
+            if (p2 != null) {
+                p2.anadirRecompensa(new Recompensa("Créditos", "Apareces en los créditos", 30));
+                p2.anadirFinanciacion(2000);
             }
         }
     }
@@ -30,7 +35,19 @@ public class GestionProyecto {
     }
 
     public static ArrayList<Proyecto> obtenerTodos() {
-        return proyectos;
+        return new ArrayList<>(proyectos); // Devolvemos una copia para evitar modificaciones externas
+    }
+
+    public static ArrayList<Proyecto> obtenerProyectosOrdenadosPorFinanciacion() {
+        ArrayList<Proyecto> proyectosOrdenados = new ArrayList<>(proyectos);
+        proyectosOrdenados.sort(Comparator.comparingDouble(Proyecto::getCantidadFinanciada).reversed());
+        return proyectosOrdenados;
+    }
+
+    public static ArrayList<Proyecto> obtenerProyectosOrdenadosPorFecha() {
+        ArrayList<Proyecto> proyectosOrdenados = new ArrayList<>(proyectos);
+        proyectosOrdenados.sort(Comparator.comparing(Proyecto::getFechaInicio).reversed());
+        return proyectosOrdenados;
     }
 
     public static ArrayList<Proyecto> obtenerPorGestor(int idGestor) {
@@ -55,7 +72,6 @@ public class GestionProyecto {
     public static boolean eliminarProyecto(int id) {
         Proyecto p = buscarPorId(id);
         if (p != null) {
-            // Antes de eliminar el proyecto, se deberían gestionar las inversiones (ej. devolver dinero).
             proyectos.remove(p);
             return true;
         }

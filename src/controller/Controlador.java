@@ -8,6 +8,7 @@ import model.interfaces.Bloqueable;
 import utilidades.*;
 import view.Vista;
 import java.time.LocalDate;
+import java.util.ArrayList;
 
 public class Controlador {
     private Vista vista;
@@ -36,69 +37,87 @@ public class Controlador {
 
     // --- LOGIN, REGISTRO Y PANELES ---
     private void procesarLogin() {
-        String nombre = vista.solicitarCadena("Usuario: ");
-        String contrasena = vista.solicitarCadena("Contraseña: ");
-        Usuario usuario = GestionUsuario.buscarPorNombre(nombre);
+        while (true) {
+            String nombre = vista.solicitarCadena("Usuario (o escribe 'cancelar' para volver): ");
+            if (nombre.equalsIgnoreCase("cancelar")) {
+                break;
+            }
 
-        if (usuario == null) {
-            vista.mostrarMensaje("Usuario o contraseña incorrectos.");
-            return;
+            String contrasena = vista.solicitarCadena("Contraseña: ");
+            Usuario usuario = GestionUsuario.buscarPorNombre(nombre);
+
+            if (usuario == null) {
+                vista.mostrarMensaje("Usuario o contraseña incorrectos.\n");
+                continue;
+            }
+
+            if (usuario instanceof Bloqueable && ((Bloqueable) usuario).isBloqueado()) {
+                vista.mostrarMensaje("Este usuario está bloqueado.\n");
+                break;
+            }
+
+            if (usuario.getContrasena().equals(contrasena)) {
+                boolean loginExitoso = procesar2FA(usuario);
+                if (loginExitoso) {
+                    break;
+                }
+            } else {
+                if (usuario instanceof Gestor) {
+                    Gestor g = (Gestor) usuario;
+                    g.decrementarIntentos();
+                    if (g.getIntentos() <= 0) {
+                        g.bloquear();
+                        vista.mostrarMensaje("Demasiados intentos fallidos. Usuario bloqueado.\n");
+                        break;
+                    } else {
+                        vista.mostrarMensaje("Contraseña incorrecta. Intentos restantes: " + g.getIntentos() + "\n");
+                    }
+                } else if (usuario instanceof Inversor) {
+                    Inversor i = (Inversor) usuario;
+                    i.decrementarIntentos();
+                    if (i.getIntentos() <= 0) {
+                        i.bloquear();
+                        vista.mostrarMensaje("Demasiados intentos fallidos. Usuario bloqueado.\n");
+                        break;
+                    } else {
+                        vista.mostrarMensaje("Contraseña incorrecta. Intentos restantes: " + i.getIntentos() + "\n");
+                    }
+                } else {
+                    vista.mostrarMensaje("Contraseña incorrecta.\n");
+                }
+            }
         }
+    }
 
-        // Comprobar si es bloqueable y si está bloqueado
-        if (usuario instanceof Bloqueable && ((Bloqueable) usuario).isBloqueado()) {
-            vista.mostrarMensaje("Este usuario está bloqueado.");
-            return;
-        }
-
-        if (usuario.getContrasena().equals(contrasena)) {
-            String token = funcionesCorreos.enviarCodigoDobleFactor(usuario.getNombre(), usuario.getCorreo());
-            String tokenIngresado = vista.solicitarCadena("Introduce el código de verificación: ");
-
+    private boolean procesar2FA(Usuario usuario) {
+        String tokenEnviado = funcionesCorreos.enviarCodigoDobleFactor(usuario.getNombre(), usuario.getCorreo());
+        int intentos2FA = 3;
+        while (intentos2FA > 0) {
+            String tokenIngresado = vista.solicitarCadena("Introduce el código de verificación (" + intentos2FA + " intentos): ");
             if (funcionesCorreos.verificarCodigoDobleFactor(usuario.getNombre(), tokenIngresado)) {
                 this.usuarioLogueado = usuario;
-                // Resetea intentos al loguear con éxito, solo para los que tienen intentos
                 if (usuario instanceof Gestor) ((Gestor) usuario).setIntentos(3);
                 if (usuario instanceof Inversor) ((Inversor) usuario).setIntentos(3);
-
-                vista.mostrarMensaje("¡Login exitoso! Bienvenido, " + usuario.getNombre());
+                vista.mostrarMensaje("¡Verificación exitosa! Bienvenido, " + usuario.getNombre());
                 switch (usuario.getTipo()) {
                     case ADMIN: panelAdmin(); break;
                     case GESTOR: panelGestor(); break;
                     case INVERSOR: panelInversor(); break;
                 }
+                return true;
             } else {
-                vista.mostrarMensaje("Código incorrecto. El inicio de sesión ha fallado.");
-            }
-        } else {
-            // Lógica de intentos fallidos para usuarios bloqueables
-            if (usuario instanceof Gestor) {
-                Gestor g = (Gestor) usuario;
-                g.decrementarIntentos();
-                if (g.getIntentos() <= 0) {
-                    g.bloquear();
-                    vista.mostrarMensaje("Demasiados intentos fallidos. Usuario bloqueado.");
-                } else {
-                    vista.mostrarMensaje("Contraseña incorrecta. Intentos restantes: " + g.getIntentos());
-                }
-            } else if (usuario instanceof Inversor) {
-                Inversor i = (Inversor) usuario;
-                i.decrementarIntentos();
-                if (i.getIntentos() <= 0) {
-                    i.bloquear();
-                    vista.mostrarMensaje("Demasiados intentos fallidos. Usuario bloqueado.");
-                } else {
-                    vista.mostrarMensaje("Contraseña incorrecta. Intentos restantes: " + i.getIntentos());
-                }
-            } else {
-                vista.mostrarMensaje("Contraseña incorrecta.");
+                intentos2FA--;
+                if (intentos2FA > 0) vista.mostrarMensaje("Código incorrecto.");
             }
         }
+        vista.mostrarMensaje("Demasiados intentos fallidos con el código. Inicio de sesión cancelado.");
+        return false;
     }
 
     private void procesarRegistro() {
-        int tipoOpcion = vista.solicitarEntero("Registrarse como:\n1. Gestor\n2. Inversor\nOpción: ");
-        if(tipoOpcion != 1 && tipoOpcion != 2) { vista.mostrarMensaje("Opción no válida."); return; }
+        int tipoOpcion = vista.solicitarTipoUsuarioRegistro();
+        if (tipoOpcion == 0) { vista.mostrarMensaje("Registro cancelado."); return; }
+        if (tipoOpcion != 1 && tipoOpcion != 2) { vista.mostrarMensaje("Opción no válida."); return; }
         TipoUsuario tipo = (tipoOpcion == 1) ? TipoUsuario.GESTOR : TipoUsuario.INVERSOR;
 
         String nombre;
@@ -109,28 +128,40 @@ public class Controlador {
 
         String correo = vista.solicitarCadena("Correo electrónico: ");
         String contrasena = solicitarNuevaContrasenaValidada();
+        if (contrasena == null) { vista.mostrarMensaje("Registro cancelado."); return; }
 
-        String token = funcionesCorreos.enviarCodigoDobleFactor(nombre, correo);
-        String tokenIngresado = vista.solicitarCadena("Introduce el código de validación enviado a tu correo: ");
+        String tokenEnviado = funcionesCorreos.enviarCodigoDobleFactor(nombre, correo);
+        boolean registroExitoso = false;
+        int intentosToken = 3;
 
-        if(funcionesCorreos.verificarCodigoDobleFactor(nombre, tokenIngresado)) {
-            GestionUsuario.registrarUsuario(nombre, contrasena, correo, tipo);
-            vista.mostrarMensaje("¡Registro completado! Ya puedes iniciar sesión.");
-        } else {
-            vista.mostrarMensaje("Código incorrecto. Registro cancelado.");
+        while(intentosToken > 0 && !registroExitoso) {
+            String tokenIngresado = vista.solicitarCadena("Introduce el código de validación enviado a tu correo (" + intentosToken + " intentos): ");
+            if(funcionesCorreos.verificarCodigoDobleFactor(nombre, tokenIngresado)) {
+                GestionUsuario.registrarUsuario(nombre, contrasena, correo, tipo);
+                vista.mostrarMensaje("¡Registro completado! Ya puedes iniciar sesión.");
+                registroExitoso = true;
+            } else {
+                intentosToken--;
+                if (intentosToken > 0) vista.mostrarMensaje("Código incorrecto.");
+            }
+        }
+
+        if (!registroExitoso) {
+            vista.mostrarMensaje("Demasiados intentos fallidos. El registro ha sido cancelado.");
         }
     }
 
     private void panelAdmin() {
         int opcion = 0;
-        while (opcion != 4) {
+        while (opcion != 5) {
             vista.mostrarMenuAdmin();
             opcion = vista.solicitarEntero("Selecciona una opción: ");
             switch (opcion) {
                 case 1: gestionarUsuarios(); break;
                 case 2: gestionarProyectosAdmin(); break;
-                case 3: abrirMenuConfiguracionAdmin(); break;
-                case 4: this.usuarioLogueado = null; vista.mostrarMensaje("Sesión cerrada."); break;
+                case 3: visualizarInversionesAdmin(); break;
+                case 4: abrirMenuConfiguracionAdmin(); break;
+                case 5: this.usuarioLogueado = null; vista.mostrarMensaje("Sesión cerrada."); break;
                 default: vista.mostrarMensaje("Opción no válida."); break;
             }
         }
@@ -157,7 +188,7 @@ public class Controlador {
             vista.mostrarMenuInversor();
             opcion = vista.solicitarEntero("Selecciona una opción: ");
             switch (opcion) {
-                case 1: vista.listarInversiones(GestionInversion.obtenerPorUsuario(usuarioLogueado.getId()), GestionProyecto.obtenerTodos()); break;
+                case 1: vista.listarMisInversiones(GestionInversion.obtenerPorUsuario(usuarioLogueado.getId())); break;
                 case 2: explorarProyectos(); break;
                 case 3: gestionarCartera(); break;
                 case 4: procesarInvitarAmigo(); break;
@@ -178,11 +209,8 @@ public class Controlador {
         if (u instanceof Bloqueable) {
             Bloqueable usuarioBloqueable = (Bloqueable) u;
             int accion = vista.solicitarEntero("1. Bloquear\n2. Desbloquear\nOpción: ");
-            if (accion == 1) {
-                usuarioBloqueable.bloquear();
-            } else if (accion == 2) {
-                usuarioBloqueable.desbloquear();
-            }
+            if (accion == 1) usuarioBloqueable.bloquear();
+            else if (accion == 2) usuarioBloqueable.desbloquear();
             vista.mostrarMensaje("Estado del usuario actualizado.");
         } else if (u != null) {
             vista.mostrarMensaje("El administrador no puede ser bloqueado.");
@@ -192,7 +220,15 @@ public class Controlador {
     }
 
     private void gestionarProyectosAdmin() {
-        vista.listarProyectos(GestionProyecto.obtenerTodos());
+        int orden = vista.solicitarOrdenacionProyectos();
+        ArrayList<Proyecto> proyectosAMostrar;
+        switch (orden) {
+            case 2: proyectosAMostrar = GestionProyecto.obtenerProyectosOrdenadosPorFinanciacion(); break;
+            case 3: proyectosAMostrar = GestionProyecto.obtenerProyectosOrdenadosPorFecha(); break;
+            default: proyectosAMostrar = GestionProyecto.obtenerTodos(); break;
+        }
+        vista.listarProyectos(proyectosAMostrar);
+
         int idProyecto = vista.solicitarEntero("ID del proyecto a gestionar (-1 para cancelar): ");
         if (idProyecto == -1) return;
         Proyecto p = GestionProyecto.buscarPorId(idProyecto);
@@ -202,6 +238,17 @@ public class Controlador {
             if (accion == 1) procesarModificarProyecto(p);
             else if (accion == 2) { if(GestionProyecto.eliminarProyecto(p.getId())) vista.mostrarMensaje("Proyecto eliminado."); }
         } else { vista.mostrarMensaje("ID no válido."); }
+    }
+
+    private void visualizarInversionesAdmin() {
+        int orden = vista.solicitarOrdenacionInversiones();
+        ArrayList<Inversion> inversionesAMostrar;
+        switch(orden) {
+            case 2: inversionesAMostrar = GestionInversion.obtenerInversionesOrdenadasPorUsuario(); break;
+            case 3: inversionesAMostrar = GestionInversion.obtenerInversionesOrdenadasPorImporte(); break;
+            default: inversionesAMostrar = GestionInversion.obtenerTodasLasInversiones(); break;
+        }
+        vista.listarInversiones(inversionesAMostrar);
     }
 
     private void gestionarMisProyectos() {
@@ -233,6 +280,8 @@ public class Controlador {
         } while (!funcionesCadenas.comprobarLongitudTexto(desc, 20, 200));
 
         CategoriaProyecto cat = vista.solicitarCategoria();
+        if (cat == null) { vista.mostrarMensaje("Creación de proyecto cancelada."); return; }
+
         double cant = vista.solicitarDouble("Cantidad necesaria (€): ");
 
         LocalDate inicio, fin;
@@ -272,7 +321,15 @@ public class Controlador {
     }
 
     private void explorarProyectos() {
-        vista.listarProyectos(GestionProyecto.obtenerTodos());
+        int orden = vista.solicitarOrdenacionProyectos();
+        ArrayList<Proyecto> proyectosAMostrar;
+        switch (orden) {
+            case 2: proyectosAMostrar = GestionProyecto.obtenerProyectosOrdenadosPorFinanciacion(); break;
+            case 3: proyectosAMostrar = GestionProyecto.obtenerProyectosOrdenadosPorFecha(); break;
+            default: proyectosAMostrar = GestionProyecto.obtenerTodos(); break;
+        }
+        vista.listarProyectos(proyectosAMostrar);
+
         int idProyecto = vista.solicitarEntero("ID del proyecto a explorar (-1 para cancelar): ");
         if (idProyecto == -1) return;
         Proyecto p = GestionProyecto.buscarPorId(idProyecto);
@@ -294,8 +351,11 @@ public class Controlador {
         Inversor inversor = (Inversor) usuarioLogueado;
 
         if (inversor.getSaldo() <= 0) { vista.mostrarMensaje("No tienes saldo suficiente."); return; }
+
+        int tipoInv = vista.solicitarTipoInversion();
+        if (tipoInv == 0) { vista.mostrarMensaje("Inversión cancelada."); return; }
+
         double cantidadInvertir = 0;
-        int tipoInv = vista.solicitarEntero("1. Inversión libre\n2. Por recompensa\nOpción: ");
         if (tipoInv == 1) {
             cantidadInvertir = vista.solicitarDouble("Cantidad a invertir: ");
         } else if (tipoInv == 2) {
@@ -359,17 +419,23 @@ public class Controlador {
 
     private void procesarCambioContrasena() {
         String nuevaPass = solicitarNuevaContrasenaValidada();
-        usuarioLogueado.setContrasena(nuevaPass);
-        vista.mostrarMensaje("Contraseña actualizada correctamente.");
+        if (nuevaPass != null) {
+            usuarioLogueado.setContrasena(nuevaPass);
+            vista.mostrarMensaje("Contraseña actualizada correctamente.");
+        } else {
+            vista.mostrarMensaje("Cambio de contraseña cancelado.");
+        }
     }
 
     private String solicitarNuevaContrasenaValidada() {
         String pass1, pass2;
         do {
-            pass1 = vista.solicitarCadena("Introduce la nueva contraseña: ");
+            pass1 = vista.solicitarCadena("Introduce la nueva contraseña (o 'cancelar' para salir): ");
+            if (pass1.equalsIgnoreCase("cancelar")) return null;
+
             pass2 = vista.solicitarCadena("Confirma la nueva contraseña: ");
             if (!funcionesCadenas.verificarFortalezaContrasena(pass1)) {
-                vista.mostrarMensaje("La contraseña es muy débil (mínimo 8 caracteres).");
+                vista.mostrarMensaje(funcionesCadenas.obtenerRequisitosContrasena());
             } else if (!funcionesCadenas.sonContrasenasIguales(pass1, pass2)) {
                 vista.mostrarMensaje("Las contraseñas no coinciden.");
             }
